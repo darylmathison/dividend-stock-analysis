@@ -13,6 +13,8 @@ timezone = pytz.timezone("US/Eastern")
 
 logging.basicConfig(level=logging.INFO)
 
+frequency_map = {12: "Monthly", 4: "Quarterly", 1: "Yearly"}
+
 
 def create_region():
     cache_dir = os.path.join(os.environ.get("HOME"), ".div_cache")
