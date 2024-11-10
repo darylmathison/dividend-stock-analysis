@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.virtualenv]
+default-packages = ["setuptools", "wheel"]
+
+[project]
+name = "dividend-stock-analysis"
+version = "0.1.0"
+description = "This is a tool to show the performance of a given dividend stock."
+authors = [
+    {name = "Daryl Mathison", email = "daryl.mathison@gmail.com"},
+]
+dependencies = [
+    "jupyter",
+    "pandas",
+    "numpy",
+    "pip",
+    "yfinance",
+    "requests",
+    "python-dateutil",
+    "dogpile.cache"
+]
+python = "^3.12"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "sphinx",
+    "black"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
