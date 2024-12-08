@@ -84,11 +84,14 @@ def gather_dividends(symbol, start, end):
     events = events.drop(special_dividends)
     events["pay_date"] = pd.to_datetime(events["pay_date"])
     events["pay_date"] = events["pay_date"].dt.tz_localize(timezone)
-    future_events = events[events["pay_date"] > pd.to_datetime(end)].index
-    events = events.drop(future_events)
     events = events.rename(columns={"pay_date": "Date", "ticker": "Symbol"})
     events = events.set_index("Date")
     return events
+
+
+def trim_div_events(df, end):
+    future_events = df[df.index > pd.to_datetime(end)].index
+    return df.drop(future_events)
 
 
 def dividend_keep_the_cash(prices, div_events, initial_cash):
@@ -179,11 +182,11 @@ def create_approach_summary(name, final_value, initial_cash, cash_in_bank):
         ],
         index=[
             "Approach",
-            "Final Market Amount",
-            "Market Profit",
-            "Market Gain",
-            "Cash Kept",
-            "Total Profit",
-            "Total Gain",
+            "Final Market Amount($)",
+            "Market Profit($)",
+            "Market Gain(%)",
+            "Cash Kept($)",
+            "Total Profit($)",
+            "Total Gain(%)",
         ],
     )
