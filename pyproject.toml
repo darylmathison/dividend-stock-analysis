@@ -22,7 +22,7 @@ dependencies = [
     "python-dateutil",
     "dogpile.cache"
 ]
-python = "^3.12"
+requires-python = ">= 3.8"
 
 [project.optional-dependencies]
 dev = [
@@ -32,4 +32,4 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["stock_analysis"]
