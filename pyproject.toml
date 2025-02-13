@@ -20,7 +20,8 @@ dependencies = [
     "yfinance",
     "requests",
     "python-dateutil",
-    "dogpile.cache"
+    "dogpile.cache",
+    "matplotlib"
 ]
 requires-python = ">= 3.8"
 
@@ -31,5 +32,5 @@ dev = [
     "black"
 ]
 
-[tool.setuptools.packages.find]
-where = ["stock_analysis"]
+[tool.setuptools.packages]
+find = {}
