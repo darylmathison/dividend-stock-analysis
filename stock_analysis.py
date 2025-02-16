@@ -162,6 +162,7 @@ def dividend_snowball(prices, div_events, initial_cash=10000):
             raise ve
     quantity = final_df.loc[dividend_dates[-1]]["quantity"]
     final_df.loc[final_df.index > dividend_dates[-1], "quantity"] = quantity
+    final_df["value"] = final_df["Close"] * final_df["quantity"]
     return final_df
 
 
