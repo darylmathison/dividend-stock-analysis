@@ -95,19 +95,165 @@ def trim_div_events(df, end):
     return df.drop(future_events)
 
 
-def dividend_keep_the_cash(prices, div_events, initial_cash):
-    dividends_gathered = prices[["Close"]].merge(
-        div_events[["cash_amount"]], left_index=True, right_index=True, how="outer"
+def dividend_keep_the_cash_with_contributions(
+    prices,
+    div_events,
+    initial_cash,
+    contribution_amount=0,
+    contribution_interval_days=0,
+):
+    """
+    Calculates portfolio value and dividends gathered, where dividends are not reinvested,
+    but includes initial cash purchase and optional regular cash contributions.
+
+    Args:
+        prices (pd.DataFrame): DataFrame with 'Close' column, indexed by Date.
+        div_events (pd.DataFrame): DataFrame with 'cash_amount' column,
+                                   indexed by Date, representing dividend payments.
+        initial_cash (float): The initial amount of cash to buy shares at the start.
+        contribution_amount (float): The amount of cash contributed at each interval.
+                                     Set to 0 to disable regular contributions.
+        contribution_interval_days (int): The number of days between cash contributions.
+                                          Set to 0 to disable regular contributions.
+
+    Returns:
+        pd.DataFrame: A DataFrame with 'Close', 'quantity', 'total_dividend',
+                      'cash_contribution', 'new_shares_from_contribution', and 'value' columns,
+                      indexed by Date.
+    """
+
+    # Ensure indices are datetime for proper merging and reindexing
+    prices.index = pd.to_datetime(prices.index)
+    div_events.index = pd.to_datetime(div_events.index)
+
+    # 1. Prepare the base DataFrame with all dates from prices
+    # Merge dividend events onto it.
+    df = prices[["Close"]].copy()
+    df = df.merge(
+        div_events["cash_amount"], left_index=True, right_index=True, how="left"
     )
-    dividends_gathered = dividends_gathered[["Close", "cash_amount"]]
-    dividends_gathered["quantity"] = initial_cash / prices.iloc[0]["Close"]
-    dividends_gathered["total_dividend"] = (
-        dividends_gathered["cash_amount"] * dividends_gathered["quantity"]
+
+    # Initialize new columns
+    df["quantity"] = np.nan
+    df["cash_contribution"] = 0.0
+    df["new_shares_from_contribution"] = 0.0  # Shares from all cash contributions
+
+    # Determine the very first trading date and its close price
+    first_trading_date = df.index[0]
+    initial_close_price = df.loc[first_trading_date, "Close"]
+
+    # Handle initial cash purchase
+    initial_quantity = 0
+    if initial_cash > 0 and initial_close_price > 0:
+        initial_quantity = initial_cash / initial_close_price
+        df.loc[first_trading_date, "new_shares_from_contribution"] = initial_quantity
+        df.loc[first_trading_date, "cash_contribution"] = (
+            initial_cash  # Record initial cash as a contribution
+        )
+
+    df.loc[first_trading_date, "quantity"] = initial_quantity  # Set initial quantity
+
+    # Fill NaN values in 'cash_amount' with 0 (no dividend on those days)
+    df.fillna({"cash_amount": 0}, inplace=True)
+
+    # 2. Determine and apply regular cash contributions
+    current_quantity = (
+        initial_quantity  # Start with the quantity after initial purchase
     )
-    dividends_gathered["value"] = (
-        dividends_gathered["Close"] * dividends_gathered["quantity"]
-    )
-    return dividends_gathered
+
+    if contribution_amount > 0 and contribution_interval_days > 0:
+        # Start contributions from the date *after* the first trading date
+        # if initial cash was used, otherwise from the first trading date.
+        start_contribution_calc_date = first_trading_date
+        if initial_cash > 0:
+            start_contribution_calc_date += pd.Timedelta(
+                days=contribution_interval_days
+            )
+
+        current_scheduled_contribution_date = start_contribution_calc_date
+
+        while current_scheduled_contribution_date <= df.index[-1]:
+            # Find the actual date in the DataFrame's index closest to the scheduled date
+            actual_contribution_date = None
+            if current_scheduled_contribution_date in df.index:
+                actual_contribution_date = current_scheduled_contribution_date
+            else:
+                next_valid_date_loc = df.index.searchsorted(
+                    current_scheduled_contribution_date, side="left"
+                )
+                if next_valid_date_loc < len(df.index):
+                    actual_contribution_date = df.index[next_valid_date_loc]
+                # If no valid date found (e.g., beyond the end), break
+                else:
+                    break
+
+            if actual_contribution_date:
+                # Ensure we don't double-count if initial_cash already filled this first slot
+                if not (
+                    actual_contribution_date == first_trading_date and initial_cash > 0
+                ):
+                    close_price_on_contribution_day = df.loc[
+                        actual_contribution_date, "Close"
+                    ]
+                    if close_price_on_contribution_day > 0:
+                        new_shares = (
+                            contribution_amount / close_price_on_contribution_day
+                        )
+                        current_quantity += new_shares
+                        # Record the contribution and new shares in the DataFrame
+                        df.loc[
+                            actual_contribution_date, "cash_contribution"
+                        ] += contribution_amount
+                        df.loc[
+                            actual_contribution_date, "new_shares_from_contribution"
+                        ] += new_shares
+
+            current_scheduled_contribution_date += pd.Timedelta(
+                days=contribution_interval_days
+            )
+
+    # Fill the 'quantity' column. The quantity only changes on contribution days.
+    # We set the quantity at the specific contribution dates, and then forward fill.
+    # The first 'quantity' (initial_quantity) is already set.
+    # Now, fill the rest from the actual contribution dates where quantity was updated.
+
+    # Create a temporary series to store the updated quantity at contribution points
+    # This avoids modifying df['quantity'] directly in the loop and allows ffill
+    quantity_at_points = pd.Series(index=df.index, dtype=float)
+    quantity_at_points.loc[first_trading_date] = initial_quantity
+
+    # Collect all dates where quantity might have changed due to contributions
+    contribution_dates_with_value = df[df["new_shares_from_contribution"] > 0].index
+
+    # For each date where shares were added, calculate the running total quantity
+    running_quantity = initial_quantity
+    for date in sorted(contribution_dates_with_value):
+        if date == first_trading_date:
+            continue  # Already handled
+
+        new_shares_on_day = df.loc[date, "new_shares_from_contribution"]
+        running_quantity += new_shares_on_day
+        quantity_at_points.loc[date] = running_quantity
+
+    df["quantity"] = quantity_at_points.ffill()
+    df.fillna({"quantity": initial_quantity}, inplace=True)
+
+    # 3. Calculate total_dividend and value based on the (now varying) quantity
+    df["total_dividend"] = df["cash_amount"] * df["quantity"]
+    df["value"] = df["Close"] * df["quantity"]
+
+    # Select and reorder columns as desired
+    final_df = df[
+        [
+            "Close",
+            "quantity",
+            "total_dividend",
+            "cash_contribution",
+            "new_shares_from_contribution",
+            "value",
+        ]
+    ]
+    return final_df
 
 
 def dividend_snowball_with_contributions(
